@@ -58,6 +58,8 @@ public interface FacebookHelpers {
         void onCompleted(FacebookHelpers fragment, Response response);
 
         void onError(FacebookHelpers fragment, Response response);
+
+        void onFinalized(FacebookHelpers fragment);
     }
 
     public class OnControllerAdapter implements OnControllerListener {
@@ -91,7 +93,14 @@ public interface FacebookHelpers {
         public void onError(FacebookHelpers fragment, Response response) {
 
         }
+
+        @Override
+        public void onFinalized(FacebookHelpers fragment) {
+
+        }
     }
+
+    String getFbId();
 
     void open(OnControllerListener listener);
 
@@ -101,9 +110,15 @@ public interface FacebookHelpers {
 
     boolean isSessionValid();
 
-    Request request(String path, Bundle parameters, HttpMethod method, OnControllerListener listener);
+    void rawRequest(String path, Bundle parameters, HttpMethod method, OnControllerListener listener);
 
-    Request request(Request request, OnControllerListener listener);
+    void request(String path, Bundle parameters, HttpMethod method, OnControllerListener listener);
+
+    void request(String path, Bundle parameters, HttpMethod method, OnControllerListener listener, String tag);
+
+    void request(Request request, OnControllerListener listener);
+
+    void request(Request request, OnControllerListener listener, String tag);
 
     void processError(Response response, FacebookRequestError error, OnControllerListener listener);
 }

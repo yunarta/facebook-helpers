@@ -51,6 +51,8 @@ public class FacebookControllerFragment extends FacebookLifecycleFragment implem
 
     private String mAuthorization;
 
+    private String mId;
+
     @Override
     public void onAttach(Activity activity) {
         super.onAttach(activity);
@@ -58,6 +60,10 @@ public class FacebookControllerFragment extends FacebookLifecycleFragment implem
         if (mController == null) {
             mController = FacebookController.getInstance(activity);
         }
+    }
+
+    public String getFbId() {
+        return mId;
     }
 
     @Override
@@ -147,20 +153,88 @@ public class FacebookControllerFragment extends FacebookLifecycleFragment implem
         return session.isOpened() || !TextUtils.isEmpty(session.getAccessToken());
     }
 
-    public Request request(String path, Bundle parameters, HttpMethod method, OnControllerListener listener) {
-        Request request = new Request(getSession(), path, parameters, method, new RequestCallbackImpl(listener));
-        request.setSession(getSession());
-        return request;
+    public boolean isSessionCached() {
+        Session session = getSession();
+        return (session.getState() == SessionState.CREATED_TOKEN_LOADED);
     }
 
-    public Request request(Request request, OnControllerListener listener) {
-        request.setSession(getSession());
+    public void rawRequest(String path, Bundle parameters, HttpMethod method, OnControllerListener listener) {
+        Request request = new Request(null, path, parameters, method, new RequestCallbackImpl(listener));
+        request.executeAsync();
+    }
+
+    public void request(String path, Bundle parameters, HttpMethod method, OnControllerListener listener) {
+        Session session = getSession();
+
+        Request request = new Request(session, path, parameters, method, new RequestCallbackImpl(listener));
+        request.setSession(session);
+
+        execute(session, request);
+    }
+
+    public void request(String path, Bundle parameters, HttpMethod method, OnControllerListener listener, String tag) {
+        Session session = getSession();
+
+        Request request = new Request(session, path, parameters, method, new RequestCallbackImpl(listener));
+        request.setTag(tag);
+        request.setSession(session);
+
+        execute(session, request);
+    }
+
+    public void request(Request request, OnControllerListener listener) {
+        Session session = getSession();
+
+        request.setSession(session);
         request.setCallback(new RequestCallbackImpl(listener));
-        return request;
+
+        execute(session, request);
+    }
+
+    public void request(Request request, OnControllerListener listener, String tag) {
+        Session session = getSession();
+
+        request.setSession(session);
+        request.setTag(tag);
+        request.setCallback(new RequestCallbackImpl(listener));
+
+        execute(session, request);
+    }
+
+    private void execute(Session session, Request request) {
+        if (!session.isOpened()) {
+            Session.OpenRequest openRequest = new Session.OpenRequest(this);
+            openRequest.setCallback(new OpenCallbackAndRun(request));
+            openRequest.setLoginBehavior(mLoginBehavior);
+            openRequest.setPermissions(mPermissions);
+
+            if ("read".equals(mAuthorization)) {
+                session.openForRead(openRequest);
+            } else {
+                session.openForPublish(openRequest);
+            }
+        } else {
+            request.executeAsync();
+        }
     }
 
     public void validate(OnControllerListener listener) {
-        Request.newMeRequest(getSession(), new RequestCallbackImpl(listener)).executeAsync();
+
+        Session session = getSession();
+        if (!session.isOpened()) {
+            Session.OpenRequest openRequest = new Session.OpenRequest(this);
+            openRequest.setCallback(new OpenCallback(listener));
+            openRequest.setLoginBehavior(mLoginBehavior);
+            openRequest.setPermissions(mPermissions);
+
+            if ("read".equals(mAuthorization)) {
+                session.openForRead(openRequest);
+            } else {
+                session.openForPublish(openRequest);
+            }
+        } else {
+            Request.newMeRequest(getSession(), new RequestCallbackImpl(listener)).executeAsync();
+        }
     }
 
     public void processError(Response response, FacebookRequestError error, OnControllerListener listener) {
@@ -197,12 +271,18 @@ public class FacebookControllerFragment extends FacebookLifecycleFragment implem
 
         @Override
         public void onCompleted(Response response) {
-            FacebookRequestError error = response.getError();
-            if (error != null) {
-                processError(response, error, mListener);
-            } else {
+            try {
+                FacebookRequestError error = response.getError();
+                if (error != null) {
+                    processError(response, error, mListener);
+                } else {
+                    if (mListener != null) {
+                        mListener.onCompleted(FacebookControllerFragment.this, response);
+                    }
+                }
+            } finally {
                 if (mListener != null) {
-                    mListener.onCompleted(FacebookControllerFragment.this, response);
+                    mListener.onFinalized(FacebookControllerFragment.this);
                 }
             }
         }
@@ -210,12 +290,20 @@ public class FacebookControllerFragment extends FacebookLifecycleFragment implem
 
         @Override
         public void onCompleted(GraphUser user, Response response) {
-            FacebookRequestError error = response.getError();
-            if (error != null) {
-                processError(response, error, mListener);
-            } else {
+            try {
+                FacebookRequestError error = response.getError();
+                if (error != null) {
+                    processError(response, error, mListener);
+                } else {
+                    mId = user.getId();
+
+                    if (mListener != null) {
+                        mListener.onAuthTokenValidated(FacebookControllerFragment.this);
+                    }
+                }
+            } finally {
                 if (mListener != null) {
-                    mListener.onAuthTokenValidated(FacebookControllerFragment.this);
+                    mListener.onFinalized(FacebookControllerFragment.this);
                 }
             }
         }
@@ -237,8 +325,44 @@ public class FacebookControllerFragment extends FacebookLifecycleFragment implem
             if (mListener != null) {
                 mListener.onSessionStateChanged(FacebookControllerFragment.this);
                 if (state == SessionState.OPENED || state == SessionState.OPENED_TOKEN_UPDATED) {
-                    mListener.onSessionOpened(FacebookControllerFragment.this);
+                    // mListener.onSessionOpened(FacebookControllerFragment.this);
+                    Request.newMeRequest(getSession(), new Request.GraphUserCallback() {
+                        @Override
+                        public void onCompleted(GraphUser user, Response response) {
+                            mId = user.getId();
+
+                            if (mListener != null) {
+                                mListener.onSessionOpened(FacebookControllerFragment.this);
+                                mListener.onAuthTokenValidated(FacebookControllerFragment.this);
+                            }
+                        }
+                    }).executeAsync();
+//                    Request request = new Request(getSession(), "me?fields=id", null, HttpMethod.GET, new Request.GraphUserCallback() {
+//
+//                        @Override
+//                        public void onCompleted(GraphUser user, Response response) {
+//
+//                        }
+//                    });
+//                    request.setSession(getSession());
                 }
+            }
+        }
+    }
+
+    private class OpenCallbackAndRun implements Session.StatusCallback {
+
+        private Request mRequest;
+
+        public OpenCallbackAndRun(Request request) {
+            mRequest = request;
+        }
+
+        @Override
+        public void call(Session session, SessionState state, Exception exception) {
+            if (state == SessionState.OPENED || state == SessionState.OPENED_TOKEN_UPDATED) {
+                mRequest.setSession(session);
+                mRequest.executeAsync();
             }
         }
     }

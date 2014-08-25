@@ -34,6 +34,7 @@ public class FacebookController {
      */
     public Session getSession() {
         Session session = Session.getActiveSession();
+
         if (session == null || session.getState() == SessionState.CLOSED || session.getState() == SessionState.CLOSED_LOGIN_FAILED) {
             session = new Session.Builder(mContext).setTokenCachingStrategy(mTokenCachingStrategy).build();
             session.addCallback(new MyStatusCallback());
